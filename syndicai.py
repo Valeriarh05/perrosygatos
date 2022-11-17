@@ -1,100 +1,151 @@
-import os, cv2
-import numpy as np
-
-from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
-from tensorflow.keras.preprocessing.image import img_to_array
-from tensorflow.keras.models import load_model
-
-from utils import url_to_image, b64_to_image, image_to_base64
-
-
-args = {
-    "image": "sample_data/out.jpg",
-    "face": "face_detector",
-    "model": "model/mask_detector.model",
-    "confidence": 0.5,
-}
-
-
 class PythonPredictor:
+#Descomprimimos el archivo rar
+!unrar x Perros_y_Gatos.rar
 
-    def __init__(self, config):
-        # load our serialized face detector model from disk
-        print("[INFO] loading face detector model...")
-        prototxtPath = os.path.sep.join([args["face"], "deploy.prototxt"])
-        weightsPath = os.path.sep.join([args["face"],
-                                        "res10_300x300_ssd_iter_140000.caffemodel"])
-        self.net = cv2.dnn.readNet(prototxtPath, weightsPath)
+#importamos librerias
+import os
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
 
-        # load the face mask detector model from disk
-        print("[INFO] loading face mask detector model...")
-        self.model = load_model(args["model"])
+#Definimos los directorios
+base_dir = 'Perros y Gatos'
+train_dir = os.path.join(base_dir, 'train')
+validation_dir = os.path.join(base_dir, 'validation')
+test_dir = os.path.join(base_dir, 'test')
 
-    def predict(self, payload):
+train_gatos_dir = os.path.join(train_dir, 'gatos')
+train_perros_dir = os.path.join(train_dir, 'perros')
 
-        # Get image from url
-        try: 
-            image = url_to_image(payload["image_url"])
-        except:
-            image = b64_to_image(payload["image_b64"])
-        orig = image.copy()
-        (h, w) = image.shape[:2]
+validation_gatos_dir = os.path.join(validation_dir, 'gatos')
+validation_perros_dir = os.path.join(validation_dir, 'perros')
 
-        # construct a blob from the image
-        blob = cv2.dnn.blobFromImage(image, 1.0, (300, 300),
-                                     (104.0, 177.0, 123.0))
+test_gatos_dir = os.path.join(test_dir, 'gatos')
+test_perros_dir = os.path.join(test_dir, 'perros')
 
-        # pass the blob through the network and obtain the face detections
-        print("[INFO] computing face detections...")
-        self.net.setInput(blob)
-        detections = self.net.forward()
+len(os.listdir(train_perros_dir))
 
-        # loop over the detections
-        for i in range(0, detections.shape[2]):
-            # extract the confidence (i.e., probability) associated with
-            # the detection
-            confidence = detections[0, 0, i, 2]
+#importamos librerias de tensorflow
+import tensorflow
+from tensorflow import keras
+from keras.models import Sequential
+from keras.layers import Conv2D, MaxPooling2D, Flatten, Dense, Dropout
 
-            # filter out weak detections by ensuring the confidence is
-            # greater than the minimum confidence
-            if confidence > args["confidence"]:
-                # compute the (x, y)-coordinates of the bounding box for
-                # the object
-                box = detections[0, 0, i, 3:7] * np.array([w, h, w, h])
-                (startX, startY, endX, endY) = box.astype("int")
+#Procesamos las imagenes
+from keras.preprocessing.image import ImageDataGenerator
+train_data = ImageDataGenerator(rescale=1. /255)
+val_data = ImageDataGenerator(rescale=1. /255)
+test_data = ImageDataGenerator(rescale=1. /255)
 
-                # ensure the bounding boxes fall within the dimensions of
-                # the frame
-                (startX, startY) = (max(0, startX), max(0, startY))
-                (endX, endY) = (min(w - 1, endX), min(h - 1, endY))
+#from keras.engine import training
+#Cargamos los datos de las imagenes
+training_set = train_data.flow_from_directory(
+    train_dir,
+    target_size=(64,64),
+    batch_size=20,
+    class_mode='binary'
+)
+validation_set = val_data.flow_from_directory(
+    validation_dir,
+    target_size=(64,64),
+    batch_size=20,
+    class_mode='binary'
+)
+test_set = test_data.flow_from_directory(
+    test_dir,
+    target_size=(64,64),
+    batch_size=20,
+    class_mode='binary'
+)
 
-                # extract the face ROI, convert it from BGR to RGB channel
-                # ordering, resize it to 224x224, and preprocess it
-                face = image[startY:endY, startX:endX]
-                face = cv2.cvtColor(face, cv2.COLOR_BGR2RGB)
-                face = cv2.resize(face, (224, 224))
-                face = img_to_array(face)
-                face = preprocess_input(face)
-                face = np.expand_dims(face, axis=0)
+#from keras.engine import training
+training_set.class_indices
 
-                # pass the face through the model to determine if the face
-                # has a mask or not
-                (mask, withoutMask) = self.model.predict(face)[0]
+#Visualizamos algunas imagenes
+from keras.utils import load_img
+fnames = [os.path.join(train_gatos_dir, fname) for
+  fname in os.listdir(train_gatos_dir)]
+img_path = fnames[666]
+img = load_img(img_path, target_size=(150,150))
 
-                # determine the class label and color we'll use to draw
-                # the bounding box and text
-                label = "Mask" if mask > withoutMask else "No Mask"
-                color = (0, 255, 0) if label == "Mask" else (0, 0, 255)
+plt.figure()
+imgplot = plt.imshow(img)
+plt.show()
 
-                # include the probability in the label
-                label = "{}: {:.2f}%".format(
-                    label, max(mask, withoutMask) * 100)
+#construimos la red convolucional o algo asi
+red = Sequential()
+red.add(Conv2D(32, (3,3), input_shape=(64,64,3), activation='relu'))
+red.add(MaxPooling2D(2,2))
+red.add(Conv2D(64, (3,3), activation='relu'))
+red.add(MaxPooling2D(2,2))
+red.add(Conv2D(128, (3,3), activation='relu'))
+red.add(MaxPooling2D(2,2))
+red.add(Conv2D(128, (3,3), activation='relu'))
+red.add(MaxPooling2D(2,2))
+red.add(Flatten())
+red.add(Dropout(0.5))
+red.add(Dense(units=512, activation='relu'))
+red.add(Dense(units=1, activation='sigmoid'))
 
-                # display the label and bounding box rectangle on the output
-                # frame
-                cv2.putText(image, label, (startX, startY - 10),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.45, color, 2)
-                cv2.rectangle(
-                    image, (startX, startY), (endX, endY), color, 2)
+red.summary()
 
-        return image_to_base64(image)
+from keras import optimizers
+
+red.compile(loss='binary_crossentropy',
+            optimizer=optimizers.RMSprop(learning_rate=1e-4),
+            metrics=['accuracy', 'mse'])
+
+#from IPython.core import history
+#Entrenamiento
+history = red.fit(training_set,
+                  steps_per_epoch=100,
+                  epochs=30,
+                  batch_size=50,
+                  validation_data=validation_set,
+                  validation_steps=50)
+
+plt.plot(history.history['loss'], label='loss')
+plt.plot(history.history['val_loss'], label='val_loss')
+plt.legend()
+plt.show()
+
+plt.plot(history.history['mse'], label='mse')
+plt.plot(history.history['val_mse'], label='val_mse')
+plt.legend()
+plt.show()
+
+plt.plot(history.history['accuracy'], label='accuracy')
+plt.plot(history.history['val_accuracy'], label='val_accuracy')
+plt.legend()
+plt.show()
+
+predict_set = red.predict(test_set)
+
+from sklearn.metrics import confusion_matrix, accuracy_score
+
+red.evaluate(test_set)
+
+#guardamos el modelo de red neuronal
+red.save("RedCNN_PerrosyGatos.h5")
+
+nueva_red = keras.models.load_model("RedCNN_PerrosyGatos.h5")
+
+#Predecimos una sola image
+path = "Perros y Gatos/validation/perros/dog.1004.jpg"
+from keras.utils import load_img, img_to_array
+img_tensor = img_to_array(img)
+img_tensor = np.expand_dims(img_tensor, axis=0)
+img_tensor /= 255
+print(img_tensor.shape)
+
+#mostramos la imagen cargada
+plt.imshow(img_tensor[0])
+plt.show()
+
+animal = nueva_red.predict(img_tensor)
+
+if np.round(animal[0][0])==1;
+print("Perro")
+else:
+  print("Gato")
